@@ -1,6 +1,7 @@
 from lib.device import Camera
 from lib.processors_noopenmdao import findFaceGetPulse
 from lib.interface import plotXY, imshow, waitKey, destroyWindow
+from lib import OSC
 from cv2 import moveWindow
 import argparse
 import numpy as np
@@ -27,6 +28,9 @@ class getPulseApp(object):
         baud = args.baud
         self.send_serial = False
         self.send_udp = False
+        self.send_OSC = False
+        self.client = None
+
         if serial:
             self.send_serial = True
             if not baud:
@@ -47,6 +51,21 @@ class getPulseApp(object):
             self.udp = (ip, port)
             self.sock = socket.socket(socket.AF_INET, # Internet
                  socket.SOCK_DGRAM) # UDP
+        osc = args.osc
+        if osc:
+            self.send_OSC = True
+            if ":" not in osc:
+                ip = osc
+                port = 5015
+            else:
+                ip, port = osc.split(":")
+
+            try:    
+                self.client = OSC.OSCClient()
+                self.client.connect((ip, int(port)))
+            except:
+                print(err)
+                return False
 
         self.cameras = []
         self.selected_cam = 0
@@ -193,7 +212,13 @@ class getPulseApp(object):
             self.serial.write(str(self.processor.bpm) + "\r\n")
 
         if self.send_udp:
-            self.sock.sendto(str(self.processor.bpm), self.udp)
+            self.sock.sendto(str(self.processor.bpm).encode('utf-8'), self.udp)
+
+        if self.send_OSC:
+            msg = OSC.OSCMessage()
+            msg.setAddress("/bpm") 
+            msg.append(str(self.processor.bpm))
+            self.client.send(msg)
 
         # handle any key presses
         self.key_handler()
@@ -206,8 +231,13 @@ if __name__ == "__main__":
                         help='Baud rate for serial transmission')
     parser.add_argument('--udp', default=None,
                         help='udp address:port destination for bpm data')
+    parser.add_argument('--osc', default=None,
+                        help='OSC: udp address:port destination for bpm data')
 
     args = parser.parse_args()
     App = getPulseApp(args)
     while True:
         App.main_loop()
+
+    App.client.close()
+    print("closed")
